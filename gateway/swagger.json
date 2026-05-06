@@ -1,0 +1,230 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "MIN001 Branch Bank API",
+    "version": "1.0.0",
+    "description": "Branch bank API registered with Central Bank as **MIN001**.\n\nAccount numbers: `MIN` + 5 alphanumeric chars = 8 characters total (e.g. `MINA3K9Z`).\n\n**Auth:** use `apiKey` from `POST /users` as Bearer token."
+  },
+  "servers": [{ "url": "/api/v1" }],
+  "tags": [
+    { "name": "System" },
+    { "name": "Users" },
+    { "name": "Accounts" },
+    { "name": "Transfers" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": { "type": "http", "scheme": "bearer", "description": "Use apiKey from POST /users" }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object", "required": ["code","message"],
+        "properties": { "code": {"type":"string"}, "message": {"type":"string"} }
+      },
+      "UserResponse": {
+        "type": "object",
+        "properties": {
+          "userId":    {"type":"string","example":"user-550e8400-e29b-41d4-a716-446655440000"},
+          "fullName":  {"type":"string","example":"Jane Doe"},
+          "email":     {"type":"string","example":"jane@example.com"},
+          "apiKey":    {"type":"string","example":"a1b2c3..."},
+          "createdAt": {"type":"string","format":"date-time"}
+        }
+      },
+      "AccountResponse": {
+        "type": "object",
+        "properties": {
+          "accountNumber": {"type":"string","example":"MINA3K9Z"},
+          "ownerId":       {"type":"string"},
+          "ownerName":     {"type":"string","example":"Jane Doe"},
+          "currency":      {"type":"string","example":"EUR"},
+          "balance":       {"type":"string","example":"0.00"},
+          "createdAt":     {"type":"string","format":"date-time"}
+        }
+      },
+      "AccountLookupResponse": {
+        "type": "object", "required": ["accountNumber","ownerName","currency"],
+        "properties": {
+          "accountNumber": {"type":"string","example":"MINA3K9Z"},
+          "ownerName":     {"type":"string","example":"Jane Doe"},
+          "currency":      {"type":"string","example":"EUR"}
+        }
+      },
+      "TransferResponse": {
+        "type": "object",
+        "properties": {
+          "transferId":          {"type":"string","format":"uuid"},
+          "status":              {"type":"string","enum":["completed","pending","failed","failed_timeout"]},
+          "sourceAccount":       {"type":"string"},
+          "destinationAccount":  {"type":"string"},
+          "amount":              {"type":"string","example":"100.00"},
+          "convertedAmount":     {"type":"string","example":"85.00"},
+          "exchangeRate":        {"type":"string","example":"0.850000"},
+          "rateCapturedAt":      {"type":"string","format":"date-time"},
+          "timestamp":           {"type":"string","format":"date-time"},
+          "errorMessage":        {"type":"string"}
+        }
+      }
+    }
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags":["System"], "summary":"Health check", "security":[],
+        "responses": { "200": { "description":"OK" } }
+      }
+    },
+    "/users": {
+      "post": {
+        "tags":["Users"], "summary":"Register a new user", "security":[],
+        "requestBody": {
+          "required":true,
+          "content": { "application/json": { "schema": {
+            "type":"object","required":["fullName"],
+            "properties": {
+              "fullName": {"type":"string","minLength":2,"example":"Jane Doe"},
+              "email":    {"type":"string","format":"email","example":"jane@example.com"}
+            }
+          }, "examples": {
+            "withEmail":  {"summary":"With email",    "value":{"fullName":"Jane Doe","email":"jane@example.com"}},
+            "noEmail":    {"summary":"Without email", "value":{"fullName":"John Smith"}}
+          }}}
+        },
+        "responses": {
+          "201": {"description":"User created — copy the apiKey", "content":{"application/json":{"schema":{"$ref":"#/components/schemas/UserResponse"}}}},
+          "400": {"description":"Validation error",   "content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}},
+          "409": {"description":"Email already used", "content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}}
+        }
+      }
+    },
+    "/users/{userId}": {
+      "get": {
+        "tags":["Users"], "summary":"Get user by ID", "security":[],
+        "parameters":[{"name":"userId","in":"path","required":true,"schema":{"type":"string"}}],
+        "responses": {
+          "200": {"description":"User found", "content":{"application/json":{"schema":{"$ref":"#/components/schemas/UserResponse"}}}},
+          "404": {"description":"Not found",  "content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}}
+        }
+      }
+    },
+    "/users/{userId}/accounts": {
+      "post": {
+        "tags":["Accounts"], "summary":"Create account for user",
+        "security":[{"BearerAuth":[]}],
+        "parameters":[{"name":"userId","in":"path","required":true,"schema":{"type":"string"}}],
+        "requestBody": {
+          "required":true,
+          "content":{"application/json":{"schema":{
+            "type":"object","required":["currency"],
+            "properties":{"currency":{"type":"string","pattern":"^[A-Z]{3}$","example":"EUR"}}
+          }, "examples":{
+            "eur":{"summary":"EUR","value":{"currency":"EUR"}},
+            "usd":{"summary":"USD","value":{"currency":"USD"}},
+            "gbp":{"summary":"GBP","value":{"currency":"GBP"}}
+          }}}
+        },
+        "responses": {
+          "201": {"description":"Account created","content":{"application/json":{"schema":{"$ref":"#/components/schemas/AccountResponse"}}}},
+          "400": {"description":"Bad currency",   "content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}},
+          "401": {"description":"Unauthorized",   "content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}},
+          "403": {"description":"Wrong user",     "content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}},
+          "404": {"description":"User not found", "content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}}
+        }
+      },
+      "get": {
+        "tags":["Accounts"], "summary":"List accounts for user",
+        "security":[{"BearerAuth":[]}],
+        "parameters":[{"name":"userId","in":"path","required":true,"schema":{"type":"string"}}],
+        "responses": {
+          "200": {"description":"List of accounts","content":{"application/json":{"schema":{"type":"array","items":{"$ref":"#/components/schemas/AccountResponse"}}}}},
+          "401": {"description":"Unauthorized","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}},
+          "403": {"description":"Forbidden",   "content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}}
+        }
+      }
+    },
+    "/accounts/{accountNumber}": {
+      "get": {
+        "tags":["Accounts"], "summary":"Account lookup (public)", "security":[],
+        "parameters":[{"name":"accountNumber","in":"path","required":true,"schema":{"type":"string","pattern":"^[A-Z0-9]{8}$"},"example":"MINA3K9Z"}],
+        "responses": {
+          "200": {"description":"Account found","content":{"application/json":{"schema":{"$ref":"#/components/schemas/AccountLookupResponse"}}}},
+          "404": {"description":"Not found",   "content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}}
+        }
+      }
+    },
+    "/transfers": {
+      "post": {
+        "tags":["Transfers"], "summary":"Initiate a transfer",
+        "security":[{"BearerAuth":[]}],
+        "requestBody": {
+          "required":true,
+          "content":{"application/json":{"schema":{
+            "type":"object","required":["transferId","sourceAccount","destinationAccount","amount"],
+            "properties":{
+              "transferId":         {"type":"string","format":"uuid","example":"550e8400-e29b-41d4-a716-446655440000"},
+              "sourceAccount":      {"type":"string","pattern":"^[A-Z0-9]{8}$","example":"MINA3K9Z"},
+              "destinationAccount": {"type":"string","pattern":"^[A-Z0-9]{8}$","example":"MINB4L0W"},
+              "amount":             {"type":"string","pattern":"^\\d+\\.\\d{2}$","example":"100.00"}
+            }
+          }, "examples":{
+            "sameBank":  {"summary":"Same-bank",  "value":{"transferId":"550e8400-e29b-41d4-a716-446655440000","sourceAccount":"MINA3K9Z","destinationAccount":"MINB4L0W","amount":"50.00"}},
+            "crossBank": {"summary":"Cross-bank", "value":{"transferId":"660f9511-f30c-52e5-b827-557766551111","sourceAccount":"MINA3K9Z","destinationAccount":"EST12345","amount":"100.00"}}
+          }}}
+        },
+        "responses": {
+          "201": {"description":"Transfer created","content":{"application/json":{"schema":{"$ref":"#/components/schemas/TransferResponse"}}}},
+          "400": {"description":"Invalid request", "content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}},
+          "401": {"description":"Unauthorized",    "content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}},
+          "403": {"description":"Not your account","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}},
+          "404": {"description":"Account not found","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}},
+          "409": {"description":"Duplicate transferId","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}},
+          "422": {"description":"Insufficient funds","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}}
+        }
+      }
+    },
+    "/transfers/receive": {
+      "post": {
+        "tags":["Transfers"], "summary":"Receive cross-bank transfer (inter-bank)", "security":[],
+        "description":"Called by other banks. Body must contain `{ jwt }` — an ES256-signed JWT from the sending bank.",
+        "requestBody": {
+          "required":true,
+          "content":{"application/json":{"schema":{
+            "type":"object","required":["jwt"],
+            "properties":{"jwt":{"type":"string","description":"ES256-signed JWT from sending bank"}}
+          }}}
+        },
+        "responses": {
+          "200": {"description":"Transfer received and credited"},
+          "400": {"description":"Missing jwt","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}},
+          "401": {"description":"JWT invalid", "content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}},
+          "404": {"description":"Dest account not found","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}},
+          "409": {"description":"Duplicate transfer","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}}
+        }
+      }
+    },
+    "/transfers/{transferId}": {
+      "get": {
+        "tags":["Transfers"], "summary":"Get transfer status",
+        "security":[{"BearerAuth":[]}],
+        "parameters":[{"name":"transferId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}],
+        "responses": {
+          "200": {"description":"Transfer found","content":{"application/json":{"schema":{"$ref":"#/components/schemas/TransferResponse"}}}},
+          "401": {"description":"Unauthorized","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}},
+          "404": {"description":"Not found",   "content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}}
+        }
+      }
+    },
+    "/users/{userId}/transfers": {
+      "get": {
+        "tags":["Transfers"], "summary":"Transfer history for user",
+        "security":[{"BearerAuth":[]}],
+        "parameters":[{"name":"userId","in":"path","required":true,"schema":{"type":"string"}}],
+        "responses": {
+          "200": {"description":"Transfer list","content":{"application/json":{"schema":{"type":"array","items":{"$ref":"#/components/schemas/TransferResponse"}}}}},
+          "401": {"description":"Unauthorized","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}},
+          "403": {"description":"Forbidden",   "content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}}
+        }
+      }
+    }
+  }
+}

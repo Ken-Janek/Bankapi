@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  user-service:
+    build: ./user-service
+    ports: ["3001:3001"]
+    volumes: [user-data:/app/data]
+    restart: unless-stopped
+
+  account-service:
+    build: ./account-service
+    ports: ["3002:3002"]
+    environment:
+      BANK_ID: ${BANK_ID:-MIN001}
+    volumes: [account-data:/app/data]
+    restart: unless-stopped
+
+  transfer-service:
+    build: ./transfer-service
+    ports: ["3003:3003"]
+    environment:
+      BANK_ID: ${BANK_ID:-MIN001}
+      CENTRAL_BANK_URL: ${CENTRAL_BANK_URL:-https://test.diarainfra.com/central-bank}
+      ACCOUNT_SERVICE_URL: http://account-service:3002
+      JWT_PRIVATE_KEY_PATH: /app/keys/private.pem
+    volumes:
+      - transfer-data:/app/data
+      - ./gateway/keys:/app/keys:ro
+    depends_on: [account-service]
+    restart: unless-stopped
+
+  gateway:
+    build: ./gateway
+    ports: ["3000:3000"]
+    environment:
+      BANK_ID: ${BANK_ID:-MIN001}
+      BANK_NAME: ${BANK_NAME:-MIN001 Branch Bank}
+      BANK_ADDRESS: ${BANK_ADDRESS:-http://localhost:3000/api/v1}
+      CENTRAL_BANK_URL: ${CENTRAL_BANK_URL:-https://test.diarainfra.com/central-bank}
+      USER_SERVICE_URL: http://user-service:3001
+      ACCOUNT_SERVICE_URL: http://account-service:3002
+      TRANSFER_SERVICE_URL: http://transfer-service:3003
+      JWT_PUBLIC_KEY_PATH: /app/keys/public.pem
+    volumes:
+      - ./gateway/keys:/app/keys:ro
+    depends_on: [user-service, account-service, transfer-service]
+    restart: unless-stopped
+
+volumes:
+  user-data:
+  account-data:
+  transfer-data:
