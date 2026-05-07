@@ -153,12 +153,15 @@ async function register() {
 
   try {
     const r = await fetch(`${CENTRAL_BANK_URL}/api/v1/banks`, {
-      method:'POST', headers:{'Content-Type':'application/json'},
+      method:'POST',
+      headers:{ 'Content-Type': 'application/json', 'Accept': 'application/json' },
       body: JSON.stringify({ name:BANK_NAME, address:BANK_ADDRESS, publicKey }),
-      timeout:10000,
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }
+      timeout:10000
     });
-    const b = await r.json();
+    const text = await r.text();
+    console.log('[gateway] Central Bank raw response:', r.status, text.substring(0, 200));
+    let b;
+    try { b = JSON.parse(text); } catch(e) { console.error('[gateway] Response is not JSON:', text.substring(0, 200)); return; }
     if (r.status === 201) console.log(`[gateway] Registered ✓  bankId:${b.bankId}  expires:${b.expiresAt}`);
     else if (r.status === 409) console.log('[gateway] Already registered (409) — sending heartbeat');
     else console.error('[gateway] Registration failed:', r.status, b);
