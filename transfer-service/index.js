@@ -208,7 +208,7 @@ app.post('/transfers', async (req, res) => {
 
   // ── Cross-bank ─────────────────────────────────────────────────────────────
   const banks    = await getBanks();
-  const destBank = banks.find(b => b.bankId === destPrefix);
+  const destBank = banks.find(b => b.bankId.startsWith(destPrefix) || destPrefix.startsWith(b.bankId.substring(0,3)));
 
   if (!destBank) {
     save({ transferId, sourceAccount, destinationAccount,
