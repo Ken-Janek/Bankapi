@@ -133,6 +133,9 @@ api.get('/users/:userId/transfers', auth, (req, res) => {
   return pGet(`${TRANSFER_SVC}/transfers/user/${req.params.userId}`, res);
 });
 
+// Debug — show transfer-service bank cache
+api.get('/debug/banks', (req, res) => pGet(`${TRANSFER_SVC}/debug/banks`, res));
+
 // TEMP: fund account for testing
 api.post('/accounts/:accountNumber/fund', (req, res) =>
   pPost(`${ACCOUNT_SVC}/accounts/${req.params.accountNumber.toUpperCase()}/fund`, req.body, res)
