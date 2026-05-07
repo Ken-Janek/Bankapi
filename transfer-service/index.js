@@ -319,4 +319,10 @@ app.get('/transfers/user/:userId', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3003;
-app.listen(PORT, () => console.log(`[transfer-service] :${PORT}`));
+app.listen(PORT, async () => {
+  console.log(`[transfer-service] :${PORT}`);
+  // Pre-warm caches on startup
+  await getBanks();
+  await getRates();
+  console.log(`[transfer-service] Caches warmed — ${_banks.length} banks loaded`);
+});
