@@ -231,7 +231,8 @@ app.post('/transfers', async (req, res) => {
       transferId, sourceAccount, destinationAccount,
       amount: parseFloat(amount).toFixed(2),
       currency: srcAcc.currency,
-      senderBankId: BANK_ID
+      senderBankId: BANK_ID,
+      sourceBankId: BANK_ID
     });
 
     // destBank.address = the bank's public API base e.g. https://xxx.up.railway.app/api/v1
