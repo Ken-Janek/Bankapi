@@ -108,7 +108,11 @@ async function credit(acn, amount) {
 let _privKey = null;
 async function privKey() {
   if (_privKey) return _privKey;
-  _privKey = await importPKCS8(fs.readFileSync(PRIVATE_KEY_PATH, 'utf8'), 'ES256');
+  // Support env var for Railway (no file system access to keys)
+  const pem = process.env.PRIVATE_KEY_CONTENT
+    ? process.env.PRIVATE_KEY_CONTENT.trim()
+    : fs.readFileSync(PRIVATE_KEY_PATH, 'utf8').trim();
+  _privKey = await importPKCS8(pem, 'ES256');
   return _privKey;
 }
 
