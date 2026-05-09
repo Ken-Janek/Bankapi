@@ -108,7 +108,11 @@ async function credit(acn, amount) {
 let _privKey = null;
 async function privKey() {
   if (_privKey) return _privKey;
-  _privKey = await importPKCS8(fs.readFileSync(PRIVATE_KEY_PATH, 'utf8'), 'ES256');
+  // Support env var for Railway (no file system access to keys)
+  const pem = process.env.PRIVATE_KEY_CONTENT
+    ? process.env.PRIVATE_KEY_CONTENT.trim()
+    : fs.readFileSync(PRIVATE_KEY_PATH, 'utf8').trim();
+  _privKey = await importPKCS8(pem, 'ES256');
   return _privKey;
 }
 
@@ -208,7 +212,7 @@ app.post('/transfers', async (req, res) => {
 
   // ── Cross-bank ─────────────────────────────────────────────────────────────
   const banks    = await getBanks();
-  const destBank = banks.find(b => b.bankId === destPrefix);
+  const destBank = banks.find(b => b.bankId.startsWith(destPrefix) || destPrefix.startsWith(b.bankId.substring(0,3)));
 
   if (!destBank) {
     save({ transferId, sourceAccount, destinationAccount,
@@ -224,10 +228,15 @@ app.post('/transfers', async (req, res) => {
 
   try {
     const jwt = await signJWT({
-      transferId, sourceAccount, destinationAccount,
+      transferId,
+      sourceAccount,
+      destinationAccount,
       amount: parseFloat(amount).toFixed(2),
       currency: srcAcc.currency,
-      senderBankId: BANK_ID
+      sourceBankId: BANK_ID,
+      destinationBankId: destBank.bankId,
+      timestamp: new Date().toISOString(),
+      nonce: Math.random().toString(36).substring(2)
     });
 
     // destBank.address = the bank's public API base e.g. https://xxx.up.railway.app/api/v1
@@ -318,5 +327,17 @@ app.get('/transfers/user/:userId', async (req, res) => {
   } catch(e) { return res.status(500).json({ code:'INTERNAL_ERROR', message: e.message }); }
 });
 
+// Debug endpoint — show cache contents
+app.get('/debug/banks', async (req, res) => {
+  const banks = await getBanks();
+  res.json({ count: banks.length, banks: banks.map(b => ({ bankId: b.bankId, address: b.address })) });
+});
+
 const PORT = process.env.PORT || 3003;
-app.listen(PORT, () => console.log(`[transfer-service] :${PORT}`));
+app.listen(PORT, async () => {
+  console.log(`[transfer-service] :${PORT}`);
+  // Pre-warm caches on startup
+  await getBanks();
+  await getRates();
+  console.log(`[transfer-service] Caches warmed — ${_banks.length} banks loaded`);
+});
