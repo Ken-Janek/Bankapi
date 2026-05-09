@@ -156,6 +156,9 @@ api.post('/accounts/:accountNumber/fund', (req, res) =>
   pPost(`${ACCOUNT_SVC}/accounts/${req.params.accountNumber.toUpperCase()}/fund`, req.body, res)
 );
 
+// Root health check for Central Bank verification
+app.get('/', (_req, res) => res.json({ status: 'ok', bankId: BANK_ID }));
+
 app.use('/api/v1', api);
 
 // Central Bank
@@ -163,6 +166,16 @@ async function register() {
   let publicKey = '';
   if (PUBLIC_KEY_CONTENT) publicKey = PUBLIC_KEY_CONTENT.trim();
   else { try { publicKey = fs.readFileSync(PUBLIC_KEY_PATH, 'utf8').trim(); } catch(e) { console.error('[gateway] Cannot read public key:', e.message); } }
+
+  // Wait for our own health endpoint to be ready before registering
+  for (let i = 0; i < 10; i++) {
+    try {
+      const selfCheck = await fetch(`${BANK_ADDRESS}/health`, { timeout: 5000 });
+      if (selfCheck.ok) break;
+    } catch(e) {}
+    console.log(`[gateway] Waiting for self health check... (${i+1}/10)`);
+    await new Promise(r => setTimeout(r, 3000));
+  }
 
   try {
     const r = await fetch(`${CENTRAL_BANK_URL}/api/v1/banks`, {
