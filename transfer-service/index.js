@@ -128,9 +128,10 @@ async function verifyJWT(token) {
   const parts = token.split('.');
   if (parts.length !== 3) throw new Error('Malformed JWT');
   const p = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
-  if (!p.senderBankId) throw new Error('Missing senderBankId in JWT');
+  const senderBankId = p.sourceBankId || p.senderBankId;
+  if (!senderBankId) throw new Error('Missing sourceBankId in JWT');
   const banks = await getBanks();
-  const bank  = banks.find(b => b.bankId === p.senderBankId);
+  const bank  = banks.find(b => b.bankId === senderBankId);
   if (!bank)           throw new Error(`Unknown bank: ${p.senderBankId}`);
   if (!bank.publicKey) throw new Error(`No publicKey for bank: ${p.senderBankId}`);
   const pub = await importSPKI(bank.publicKey, 'ES256');
@@ -212,7 +213,7 @@ app.post('/transfers', async (req, res) => {
 
   // ── Cross-bank ─────────────────────────────────────────────────────────────
   const banks    = await getBanks();
-  const destBank = banks.find(b => b.bankId.startsWith(destPrefix) || destPrefix.startsWith(b.bankId.substring(0,3)));
+  const destBank = banks.find(b => b.bankId === destPrefix || b.bankId.startsWith(destPrefix) || destPrefix.startsWith(b.bankId.substring(0,3)));
 
   if (!destBank) {
     save({ transferId, sourceAccount, destinationAccount,
