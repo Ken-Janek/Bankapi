@@ -152,6 +152,33 @@
         }
       }
     },
+    "/accounts/{accountNumber}/fund": {
+      "post": {
+        "tags":["Accounts"], "summary":"Fund account for testing", "security":[],
+        "description":"Test-only helper endpoint to credit an account balance for demos and manual testing.",
+        "parameters":[{"name":"accountNumber","in":"path","required":true,"schema":{"type":"string","pattern":"^[A-Z0-9]{8}$"},"example":"MINA3K9Z"}],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "amount": {"type":"number","example":1000}
+                }
+              },
+              "examples": {
+                "defaultAmount": {"summary":"Credit account with 1000","value":{"amount":1000}}
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {"description":"Account funded","content":{"application/json":{"schema":{"type":"object","properties":{"accountNumber":{"type":"string"},"balance":{"type":"string","example":"1000.00"}}}}}},
+          "404": {"description":"Account not found","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}}
+        }
+      }
+    },
     "/transfers": {
       "post": {
         "tags":["Transfers"], "summary":"Initiate a transfer",
