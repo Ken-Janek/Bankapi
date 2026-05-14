@@ -1,144 +1,149 @@
 # MIN001 Branch Bank API
 
-Microservices branch bank — registered with Central Bank as **MIN001**.  
-Interoperates with other branch banks via the shared Central Bank system.
+Microservices-based branch bank API for the Central Bank integration assignment.
 
-| | |
-|---|---|
-| **API** | `http://localhost:3000/api/v1` |
-| **Swagger UI** | `http://localhost:3000/docs` |
-| **OpenAPI spec** | `http://localhost:3000/api-docs.json` |
-
----
+Live URLs:
+- API base: `https://bankapi-production-a99e.up.railway.app/api/v1`
+- Swagger UI: `https://bankapi-production-a99e.up.railway.app/docs`
+- OpenAPI JSON: `https://bankapi-production-a99e.up.railway.app/api-docs.json`
+- Health check: `https://bankapi-production-a99e.up.railway.app/api/v1/health`
 
 ## Technologies
 
-| Layer | Technology |
-|---|---|
-| Runtime | Node.js 20 |
-| Framework | Express.js |
-| Database | SQLite (`better-sqlite3`) — one DB per service |
-| JWT | `jose` — ES256 / ECDSA P-256 |
-| API Docs | `swagger-ui-express` |
-| Containers | Docker Compose (local) / Railway (cloud) |
+- Node.js 20
+- Express.js
+- SQLite with `better-sqlite3`
+- `jose` for ES256 JWT signing and verification
+- Swagger UI via `swagger-ui-express`
+- Docker and Railway
 
----
+## Microservices Architecture
 
-## Architecture
+The system is split into four independently deployable services:
 
-```
-                    ┌──────────────────────────┐
-                    │     gateway  :3000        │
-                    │  • Auth (Bearer apiKey)   │
-                    │  • Swagger UI  /docs      │
-                    │  • Central Bank client    │
-                    │  • Heartbeat every 25 min │
-                    └────────────┬─────────────┘
-                                 │
-          ┌──────────────────────┼──────────────────────┐
-          │                      │                      │
-  ┌───────▼──────┐     ┌─────────▼──────┐     ┌────────▼───────┐
-  │ user-service │     │account-service │     │transfer-service│
-  │    :3001     │     │    :3002       │     │    :3003       │
-  │  users.db    │     │  accounts.db   │     │  transfers.db  │
-  └──────────────┘     └────────────────┘     └────────────────┘
-```
+- `gateway` on port `3000`: public API, API-key authentication, Swagger UI, Central Bank registration and heartbeat
+- `user-service` on port `3001`: user registration, user lookup, API key lookup
+- `account-service` on port `3002`: account creation, account lookup, debit and credit operations
+- `transfer-service` on port `3003`: local transfers, cross-bank transfers, transfer history, ES256 JWT handling
 
-| Service | Port | Responsibility |
-|---|---|---|
-| `gateway` | 3000 | Routing, auth, Swagger, Central Bank registration & heartbeat |
-| `user-service` | 3001 | User registration, API key generation |
-| `account-service` | 3002 | Account creation (`MIN` + 5 chars = 8 total), debit/credit |
-| `transfer-service` | 3003 | Same-bank & cross-bank transfers, ES256 JWT, idempotency |
-
----
+Service communication is done over internal REST calls. Each service owns its own SQLite database file and business logic.
 
 ## Database Schema
 
-### user-service — `users.db`
+`user-service/data/users.db`
+
 ```sql
-users ( id, full_name, email, api_key, created_at )
+CREATE TABLE users (
+  id TEXT PRIMARY KEY,
+  full_name TEXT NOT NULL,
+  email TEXT UNIQUE,
+  api_key TEXT UNIQUE NOT NULL,
+  created_at TEXT NOT NULL
+);
 ```
 
-### account-service — `accounts.db`
+`account-service/data/accounts.db`
+
 ```sql
-accounts ( account_number, owner_id, owner_name, currency, balance, created_at )
--- account_number = "MIN" + 5 alphanumeric chars, e.g. MINA3K9Z
+CREATE TABLE accounts (
+  account_number TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  owner_name TEXT NOT NULL,
+  currency TEXT NOT NULL,
+  balance TEXT NOT NULL DEFAULT '0.00',
+  created_at TEXT NOT NULL
+);
 ```
 
-### transfer-service — `transfers.db`
+`transfer-service/data/transfers.db`
+
 ```sql
-transfers ( transfer_id, source_account, destination_account, amount, currency,
-            converted_amount, exchange_rate, rate_captured_at,
-            status, error_message, created_at, updated_at )
--- status: completed | pending | failed | failed_timeout
+CREATE TABLE transfers (
+  transfer_id TEXT PRIMARY KEY,
+  source_account TEXT NOT NULL,
+  destination_account TEXT NOT NULL,
+  amount TEXT NOT NULL,
+  currency TEXT NOT NULL,
+  converted_amount TEXT,
+  exchange_rate TEXT,
+  rate_captured_at TEXT,
+  status TEXT NOT NULL,
+  error_message TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 ```
 
----
+## Implemented Features
 
-## Quick Start
+- User registration and lookup
+- Bearer authentication using generated API keys
+- Account creation and account listing per user
+- Public account lookup
+- Same-bank transfers
+- Cross-bank transfers with ES256-signed JWT payloads
+- Transfer history and transfer status lookup
+- Central Bank registration
+- 25-minute heartbeat refresh
+- Central Bank bank-directory caching
+- Central Bank exchange-rate caching
+- Swagger UI connected to the live implementation
+- Transfer idempotency with `transferId`
 
-### Docker (local)
+## API Endpoints
+
+All public endpoints are exposed under `/api/v1`.
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| `GET` | `/health` | No | Service health |
+| `POST` | `/users` | No | Register a user |
+| `GET` | `/users/{userId}` | No | Fetch user details |
+| `POST` | `/users/{userId}/accounts` | Bearer | Create an account for the authenticated user |
+| `GET` | `/users/{userId}/accounts` | Bearer | List authenticated user's accounts |
+| `GET` | `/accounts/{accountNumber}` | No | Public account lookup |
+| `POST` | `/transfers` | Bearer | Start a same-bank or cross-bank transfer |
+| `POST` | `/transfers/receive` | No | Receive signed transfer from another bank |
+| `GET` | `/transfers/{transferId}` | Bearer | Get transfer status for owned transfer |
+| `GET` | `/users/{userId}/transfers` | Bearer | Get transfer history for user's accounts |
+
+Swagger UI is available at `/docs`.
+
+## Local Run
+
+### Option 1: Docker Compose
+
 ```bash
-git clone <repo>
-cd bank-api
-cp .env.example .env
+git clone https://github.com/Ken-Janek/Bankapi
+cd Bankapi
 docker compose up --build
 ```
 
-### Without Docker (Windows)
+Public local URLs:
+
+- `http://localhost:3000/docs`
+- `http://localhost:3000/api/v1`
+
+### Option 2: Windows without Docker
+
 ```powershell
-# Install deps
 foreach ($d in "user-service","account-service","transfer-service","gateway") {
-  cd $d; npm install; cd ..
+  Set-Location $d
+  npm install
+  Set-Location ..
 }
-# Start all
+
 powershell -ExecutionPolicy Bypass -File start-all.ps1
 ```
 
----
+## Environment Variables
 
-## Deploying to Railway
+### gateway
 
-Railway runs each microservice as a separate service in the same project.
-
-### Step 1 — Push to GitHub
-```bash
-git init && git add . && git commit -m "init"
-git remote add origin https://github.com/you/bank-api.git
-git push -u origin main
-```
-
-### Step 2 — Create Railway project
-1. Go to [railway.app](https://railway.app) → New Project → Deploy from GitHub repo
-2. Create **4 services**, one per folder:
-   - `gateway` → Root directory: `gateway`
-   - `user-service` → Root directory: `user-service`
-   - `account-service` → Root directory: `account-service`
-   - `transfer-service` → Root directory: `transfer-service`
-
-### Step 3 — Add the ES256 keys to Railway
-The keys in `gateway/keys/` must be available to `gateway` and `transfer-service`.  
-Easiest approach — paste key contents as environment variables:
-
-```bash
-# In your terminal:
-cat gateway/keys/private.pem   # paste as PRIVATE_KEY_PEM
-cat gateway/keys/public.pem    # paste as PUBLIC_KEY_PEM
-```
-
-Then in `gateway/index.js` and `transfer-service/index.js`, read from env if file missing:
-> This is already handled — see the `RAILWAY KEYS NOTE` section below.
-
-**Alternatively:** commit the keys to the repo (acceptable for a school project).
-
-### Step 4 — Set environment variables per service
-
-**gateway:**
-```
+```env
 BANK_ID=MIN001
 BANK_NAME=MIN001 Branch Bank
-BANK_ADDRESS=https://<your-gateway>.up.railway.app/api/v1
+BANK_ADDRESS=https://bankapi-production-a99e.up.railway.app/api/v1
 CENTRAL_BANK_URL=https://test.diarainfra.com/central-bank
 USER_SERVICE_URL=http://user-service.railway.internal:3001
 ACCOUNT_SERVICE_URL=http://account-service.railway.internal:3002
@@ -147,8 +152,9 @@ JWT_PUBLIC_KEY_PATH=./keys/public.pem
 PORT=3000
 ```
 
-**transfer-service:**
-```
+### transfer-service
+
+```env
 BANK_ID=MIN001
 CENTRAL_BANK_URL=https://test.diarainfra.com/central-bank
 ACCOUNT_SERVICE_URL=http://account-service.railway.internal:3002
@@ -156,94 +162,145 @@ JWT_PRIVATE_KEY_PATH=./keys/private.pem
 PORT=3003
 ```
 
-**account-service:**
-```
+### account-service
+
+```env
 BANK_ID=MIN001
 PORT=3002
 ```
 
-**user-service:**
-```
+### user-service
+
+```env
 PORT=3001
 ```
 
-### Step 5 — Deploy
-Railway auto-deploys on push. Check logs per service in Railway dashboard.
+Optional env-based key injection:
 
----
+- `PUBLIC_KEY_CONTENT` for `gateway`
+- `PRIVATE_KEY_CONTENT` for `transfer-service`
 
-## Environment Variables
+The current repository also includes key files for school-project deployment.
 
-| Variable | Used by | Description |
-|---|---|---|
-| `BANK_ID` | gateway, transfer, account | `MIN001` |
-| `BANK_NAME` | gateway | Display name |
-| `BANK_ADDRESS` | gateway | **Public** URL of gateway (Railway URL) |
-| `CENTRAL_BANK_URL` | gateway, transfer | Central Bank API base |
-| `USER_SERVICE_URL` | gateway | Internal URL to user-service |
-| `ACCOUNT_SERVICE_URL` | gateway, transfer | Internal URL to account-service |
-| `TRANSFER_SERVICE_URL` | gateway | Internal URL to transfer-service |
-| `JWT_PUBLIC_KEY_PATH` | gateway | Path to ES256 public key |
-| `JWT_PRIVATE_KEY_PATH` | transfer | Path to ES256 private key |
-| `PORT` | all | Port to listen on (Railway sets this automatically) |
+## Railway Deployment
 
----
+Deploy as four separate Railway services from the same repository:
 
-## API Endpoints
+1. Create a Railway project connected to the GitHub repository.
+2. Create four services with these root directories:
+- `gateway`
+- `user-service`
+- `account-service`
+- `transfer-service`
+3. Set the environment variables for each service.
+4. Expose `gateway` publicly.
+5. Use Railway private networking for service-to-service URLs.
 
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| `GET` | `/health` | — | Health check |
-| `POST` | `/users` | — | Register user, get `apiKey` |
-| `GET` | `/users/{userId}` | — | Get user info |
-| `POST` | `/users/{userId}/accounts` | Bearer | Create account |
-| `GET` | `/users/{userId}/accounts` | Bearer | List accounts |
-| `GET` | `/accounts/{accountNumber}` | — | Public account lookup |
-| `POST` | `/transfers` | Bearer | Initiate transfer |
-| `POST` | `/transfers/receive` | ES256 JWT in body | Receive cross-bank transfer |
-| `GET` | `/transfers/{transferId}` | Bearer | Transfer status |
-| `GET` | `/users/{userId}/transfers` | Bearer | Transfer history |
-| `GET` | `/api-docs.json` | — | OpenAPI spec |
+The repository already contains:
 
----
+- `Dockerfile` in each service directory
+- `railway.json` in each service directory
 
-## Sample Flow
+## Example Requests
+
+### 1. Register a user
 
 ```bash
-BASE=http://localhost:3000/api/v1
-
-# 1. Register user
-curl -s -X POST $BASE/users \
+curl -X POST https://bankapi-production-a99e.up.railway.app/api/v1/users \
   -H "Content-Type: application/json" \
-  -d '{"fullName":"Jane Doe","email":"jane@example.com"}' | tee user.json
+  -d '{"fullName":"Jane Doe","email":"jane@example.com"}'
+```
 
-# Copy userId and apiKey from output
+Example response:
 
-# 2. Create account
-curl -s -X POST $BASE/users/{userId}/accounts \
+```json
+{
+  "userId": "user-550e8400-e29b-41d4-a716-446655440000",
+  "fullName": "Jane Doe",
+  "email": "jane@example.com",
+  "apiKey": "generated-api-key",
+  "createdAt": "2026-05-14T12:00:00.000Z"
+}
+```
+
+### 2. Create an account
+
+```bash
+curl -X POST https://bankapi-production-a99e.up.railway.app/api/v1/users/{userId}/accounts \
   -H "Authorization: Bearer {apiKey}" \
   -H "Content-Type: application/json" \
-  -d '{"currency":"EUR"}' | tee account.json
+  -d '{"currency":"EUR"}'
+```
 
-# 3. Transfer
-curl -s -X POST $BASE/transfers \
+### 3. Fund an account for testing
+
+This endpoint exists only for demo and testing:
+
+```bash
+curl -X POST https://bankapi-production-a99e.up.railway.app/api/v1/accounts/{accountNumber}/fund \
+  -H "Content-Type: application/json" \
+  -d '{"amount":1000}'
+```
+
+### 4. Make a transfer
+
+```bash
+curl -X POST https://bankapi-production-a99e.up.railway.app/api/v1/transfers \
   -H "Authorization: Bearer {apiKey}" \
   -H "Content-Type: application/json" \
   -d '{
     "transferId":"550e8400-e29b-41d4-a716-446655440000",
-    "sourceAccount":"{accountNumber}",
-    "destinationAccount":"{otherAccount}",
+    "sourceAccount":"MINA3K9Z",
+    "destinationAccount":"MINB4L0W",
     "amount":"50.00"
   }'
 ```
 
----
+### 5. Read transfer status
 
-## Notes
+```bash
+curl https://bankapi-production-a99e.up.railway.app/api/v1/transfers/{transferId} \
+  -H "Authorization: Bearer {apiKey}"
+```
 
-- Balance stored as `TEXT` — no floating point issues
-- Transfers idempotent via `transferId` (UUID)
-- Account numbers: exactly 8 chars — `MIN` + 5 alphanumeric
-- ES256 JWT only used for cross-bank `/transfers/receive`
-- Heartbeat sent every 25 min (Central Bank timeout = 30 min)
-- On 404/410 heartbeat response → auto re-registers with Central Bank
+## Central Bank Integration
+
+Implemented Central Bank interactions:
+
+- `POST /api/v1/banks` for registration
+- `GET /api/v1/banks` for bank directory cache
+- `POST /api/v1/banks/{bankId}/heartbeat` for heartbeat
+- `GET /api/v1/exchange-rates` for FX conversion
+
+Cross-bank incoming transfers are verified with ES256 public-key JWT validation. Outgoing cross-bank transfers are signed with the private key using `jose`.
+
+## Testing Summary
+
+Manual scenarios covered:
+
+- Create user
+- Fetch user
+- Create account
+- List user accounts
+- Same-bank transfer
+- Transfer status lookup
+- Transfer history lookup
+- Swagger UI access on live deployment
+- Central Bank registration and heartbeat on startup
+
+Known practical note:
+
+- Cross-bank transfer testing requires another working branch-bank implementation registered in the Central Bank directory.
+
+## Security Notes
+
+- API keys are used as Bearer tokens for user-authenticated endpoints.
+- Transfer status is restricted to transfers involving the authenticated user's accounts.
+- Cross-bank requests are signed and verified with ES256 JWTs.
+- Duplicate transfers are blocked by `transferId`.
+
+## Repository
+
+GitHub repository:
+
+- `https://github.com/Ken-Janek/Bankapi`
