@@ -2,6 +2,8 @@
 
 Microservices-based branch bank API for the Central Bank integration assignment.
 
+Project status: live deployment available on Railway.
+
 Live URLs:
 - API base: `https://bankapi-production-a99e.up.railway.app/api/v1`
 - Swagger UI: `https://bankapi-production-a99e.up.railway.app/docs`
