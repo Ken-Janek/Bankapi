@@ -52,6 +52,13 @@ async function getBanks() {
   return _banks;
 }
 
+function findDestinationBank(banks, destPrefix) {
+  const matches = banks.filter(b => String(b.bankId || '').substring(0, 3).toUpperCase() === destPrefix);
+  if (matches.length === 1) return matches[0];
+  if (matches.length > 1) throw new Error(`Ambiguous destination bank for prefix '${destPrefix}'`);
+  return null;
+}
+
 async function getRates() {
   if (Date.now() - _ratesAt < TTL && Object.keys(_rates).length) return _rates;
   try {
@@ -212,13 +219,21 @@ app.post('/transfers', async (req, res) => {
   }
 
   // ── Cross-bank ─────────────────────────────────────────────────────────────
-  const banks    = await getBanks();
-  const destBank = banks.find(b => b.bankId === destPrefix || b.bankId.startsWith(destPrefix) || destPrefix.startsWith(b.bankId.substring(0,3)));
+  let destBank;
+  try {
+    destBank = findDestinationBank(await getBanks(), destPrefix);
+  } catch(e) {
+    save({ transferId, sourceAccount, destinationAccount,
+           amount: parseFloat(amount).toFixed(2), currency: srcAcc.currency,
+           status:'failed', errorMessage:e.message,
+           createdAt: now, updatedAt: now });
+    return res.status(409).json(fmt(db.prepare('SELECT * FROM transfers WHERE transfer_id=?').get(transferId)));
+  }
 
   if (!destBank) {
     save({ transferId, sourceAccount, destinationAccount,
            amount: parseFloat(amount).toFixed(2), currency: srcAcc.currency,
-           status:'pending', errorMessage:'Destination bank not found in directory',
+           status:'failed', errorMessage:'Destination bank not found in directory',
            createdAt: now, updatedAt: now });
     return res.status(201).json(fmt(db.prepare('SELECT * FROM transfers WHERE transfer_id=?').get(transferId)));
   }
@@ -257,14 +272,14 @@ app.post('/transfers', async (req, res) => {
       await credit(sourceAccount, amount); // refund
       save({ transferId, sourceAccount, destinationAccount,
              amount: parseFloat(amount).toFixed(2), currency: srcAcc.currency,
-             status:'pending', errorMessage:`Dest bank HTTP ${sr.status}: ${errText.substring(0,100)}`,
+             status:'failed', errorMessage:`Dest bank HTTP ${sr.status}: ${errText.substring(0,100)}`,
              createdAt: now, updatedAt: now });
     }
   } catch(e) {
     await credit(sourceAccount, amount); // refund
     save({ transferId, sourceAccount, destinationAccount,
            amount: parseFloat(amount).toFixed(2), currency: srcAcc.currency,
-           status:'pending', errorMessage: e.message,
+           status:'failed', errorMessage: e.message,
            createdAt: now, updatedAt: now });
   }
 

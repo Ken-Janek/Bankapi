@@ -60,6 +60,13 @@ async function pPost(url, body, res) {
   } catch(e) { return res.status(503).json({ code:'SERVICE_UNAVAILABLE', message:e.message }); }
 }
 
+async function getOwnedAccounts(userId) {
+  const r = await fetch(`${ACCOUNT_SVC}/accounts/owner/${userId}`, { timeout:8000 });
+  if (!r.ok) throw new Error('Account service lookup failed');
+  const accounts = await r.json();
+  return new Set(accounts.map(a => a.accountNumber));
+}
+
 // ── Routes ─────────────────────────────────────────────────────────────────
 const api = express.Router();
 
@@ -122,9 +129,28 @@ api.post('/transfers/receive', async (req, res) => {
 });
 
 // Transfer status
-api.get('/transfers/:transferId', auth, (req, res) =>
-  pGet(`${TRANSFER_SVC}/transfers/${req.params.transferId}`, res)
-);
+api.get('/transfers/:transferId', auth, async (req, res) => {
+  try {
+    const [ownedAccounts, transferResp] = await Promise.all([
+      getOwnedAccounts(req.user.userId),
+      fetch(`${TRANSFER_SVC}/transfers/${req.params.transferId}`, { timeout:8000 })
+    ]);
+
+    const body = await transferResp.json();
+    if (!transferResp.ok) return res.status(transferResp.status).json(body);
+
+    const canAccess =
+      ownedAccounts.has(String(body.sourceAccount || '').toUpperCase()) ||
+      ownedAccounts.has(String(body.destinationAccount || '').toUpperCase());
+
+    if (!canAccess)
+      return res.status(403).json({ code:'FORBIDDEN', message:'Transfer does not belong to you' });
+
+    return res.json(body);
+  } catch(e) {
+    return res.status(503).json({ code:'SERVICE_UNAVAILABLE', message:e.message });
+  }
+});
 
 // Transfer history
 api.get('/users/:userId/transfers', auth, (req, res) => {
